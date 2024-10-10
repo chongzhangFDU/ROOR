@@ -1,0 +1,209 @@
+import itertools
+import json
+import os
+from PIL import Image
+import cv2
+import numpy as np
+import torch
+import tqdm
+import pickle
+import random
+from transformers import BartTokenizer, BartConfig
+from model.layoutlm_v3.configuration_layoutlmv3 import LayoutLMv3Config
+from model.layoutlm_v3.tokenization_layoutlmv3 import LayoutLMv3Tokenizer
+from utils.image_utils import RandomResizedCropAndInterpolationWithTwoPic
+from utils.utils import transitive_closure_dfs
+from torch.utils.data.dataset import Dataset
+from torchvision import transforms
+from torchvision.datasets.folder import pil_loader
+from utils.tensor_utils import strings_to_tensor
+from multiprocessing.pool import ThreadPool
+from threading import Lock
+
+
+class LayoutLMv3Dataset(Dataset):
+    def __init__(self,
+                 json_objs, image_dir,
+                 layoutlmv3_tokenizer,
+                 layoutlmv3_config,
+                 encoder_max_length=None,
+                 use_image=True,
+                 box_level='segment',
+                 use_aux_ro=False,
+                 transitive_expand=False,
+                 is_train_val_test='train',
+                 ner_labels=None,
+                 max_entities=100,
+                 max_rel_pairs=2048,
+                 ):
+
+        # 相关配置
+        self.image_dir = image_dir
+        self.layoutlmv3_tokenizer = layoutlmv3_tokenizer
+        self.layoutlmv3_config = layoutlmv3_config
+        self.use_image = use_image
+        self.box_level = box_level
+        self.use_aux_ro = use_aux_ro
+        self.transitive_expand = transitive_expand
+        self.is_train_val_test = is_train_val_test
+        if encoder_max_length is None:
+            self.encoder_max_length = self.layoutlmv3_config.max_position_embeddings - 2
+        else:
+            self.encoder_max_length = encoder_max_length
+
+        # 图像处理
+        if self.use_image:
+            # 图像大小，patch大小，patch token长度
+            self.image_patch_size = 16
+            self.IMAGE_LEN = int(self.layoutlmv3_config.input_size / self.image_patch_size) ** 2 + 1
+            # 增强算法
+            IMAGENET_DEFAULT_MEAN = (0.485, 0.456, 0.406)
+            IMAGENET_DEFAULT_STD = (0.229, 0.224, 0.225)
+            IMAGENET_INCEPTION_MEAN = (0.5, 0.5, 0.5)
+            IMAGENET_INCEPTION_STD = (0.5, 0.5, 0.5)
+            imagenet_default_mean_and_std = False
+            mean = IMAGENET_INCEPTION_MEAN if not imagenet_default_mean_and_std else IMAGENET_DEFAULT_MEAN
+            std = IMAGENET_INCEPTION_STD if not imagenet_default_mean_and_std else IMAGENET_DEFAULT_STD
+            self.common_transform = transforms.Compose([
+                # transforms.ColorJitter(0.4, 0.4, 0.4),
+                # transforms.RandomHorizontalFlip(p=0.5),
+                RandomResizedCropAndInterpolationWithTwoPic(
+                    size=self.layoutlmv3_config.input_size, interpolation='bicubic'),
+            ])
+            self.patch_transform = transforms.Compose([
+                transforms.ToTensor(),
+                transforms.Normalize(
+                    mean=torch.tensor(mean),
+                    std=torch.tensor(std))
+            ])
+
+        # RE
+        self.ner_labels = ner_labels
+        self.max_entities = max_entities
+        self.max_rel_pairs = max_rel_pairs
+
+        # 预处理每条输入数据
+        self.dataset = [self.process(o) for o in tqdm.tqdm(json_objs)]
+
+    def __len__(self):
+        return len(self.dataset)
+
+    def __getitem__(self, idx):
+        return self.dataset[idx]
+
+    def process_layout_for_layoutlmv3_encoder(self, json_obj):
+        """ 返回layoutlmv3的输入格式
+            {
+                'input_ids': torch.zeros(1, 512).long(),
+                'attention_mask': torch.zeros(1, 709).long(), # 512 + 197
+                'bbox': torch.zeros(1, 512, 4).long(),
+                'images': torch.randn(1, 3, 224, 224),
+            }
+        """
+        # 处理文和框
+        input_ids, attention_mask, bbox = [self.layoutlmv3_tokenizer.cls_token_id], [1], [[0, 0, 0, 0]]
+        word_id_to_token_span = dict()
+        for segment in json_obj['document']:
+            for word in segment['words']:
+                tokens = self.layoutlmv3_tokenizer(word['text'], add_special_tokens=False).input_ids
+                if self.box_level == 'segment':
+                    box = segment['box']
+                else:
+                    box = word['box']
+                max_2d = self.layoutlmv3_config.max_2d_position_embeddings - 2
+                box = [
+                    round(box[0] * max_2d / json_obj['img']['width']),
+                    round(box[1] * max_2d / json_obj['img']['height']),
+                    round(box[2] * max_2d / json_obj['img']['width']),
+                    round(box[3] * max_2d / json_obj['img']['height']),
+                ]
+                box = [max(min(b, max_2d), 0) for b in box]
+                if len(input_ids) + len(tokens) > self.encoder_max_length:
+                    break
+                word_id_to_token_span[word['id']] = (len(input_ids), len(input_ids) + len(tokens))
+                input_ids += tokens
+                attention_mask += [1] * len(tokens)
+                bbox += [box] * len(tokens)
+        # pad到指定长度，转为tensor
+        ori_length = len(input_ids)  # 文本部分真实长度，token classification使用
+        pad_length = self.encoder_max_length - ori_length
+        assert pad_length >= 0
+        input_ids.extend([self.layoutlmv3_tokenizer.pad_token_id] * pad_length)
+        attention_mask.extend([0] * pad_length)
+        bbox.extend([[0, 0, 0, 0]] * pad_length)
+
+        return_dict = {
+            'input_ids': torch.tensor(input_ids).long(),
+            'attention_mask': torch.tensor(attention_mask).long(),
+            'bbox': torch.tensor(bbox).long(),
+            'ori_length': torch.tensor(ori_length).long(),
+        }
+
+        # 处理图
+        if self.use_image:
+            img = pil_loader(os.path.join(self.image_dir, json_obj['img']['fname']))
+            for_patches, _ = self.common_transform(img)
+            images = self.patch_transform(for_patches)
+            return_dict['attention_mask'] = torch.cat(
+                (return_dict['attention_mask'], torch.ones((self.IMAGE_LEN,))), dim=0)
+            return_dict['images'] = images
+
+        # 处理追加的阅读顺序信号
+        if self.use_aux_ro and 'ro_linkings' in json_obj:
+            ro_linkings = json_obj['ro_linkings']
+            return_dict["ro_attn"] = np.zeros(
+                (self.encoder_max_length + self.IMAGE_LEN, self.encoder_max_length + self.IMAGE_LEN),
+                dtype=np.float32)
+            if self.transitive_expand: ro_linkings = transitive_closure_dfs(ro_linkings)
+            for i, j in ro_linkings:
+                if i in word_id_to_token_span and j in word_id_to_token_span:
+                    i1, i2 = word_id_to_token_span[i]
+                    j1, j2 = word_id_to_token_span[j]
+                    return_dict["ro_attn"][i1:i2][j1:j2] = 1.0
+            return_dict["ro_attn"] = torch.from_numpy(return_dict["ro_attn"])
+
+        # 最终返回
+        return return_dict, word_id_to_token_span
+
+    def process_re(self, json_obj, word_id_to_token_span):
+        # entity id to entity index; entity index to head+tail+class labels
+        entities = []
+        for e in json_obj['label_entities']:
+            entity_head = word_id_to_token_span[e['word_idx'][0]][0]
+            entity_tail = word_id_to_token_span[e['word_idx'][-1]][0]
+            entities.append([e['entity_id'], entity_head, entity_tail, self.ner_labels.index(e['label'])])
+        if self.is_train_val_test == 'train':
+            random.shuffle(entities)
+            entities = entities[:self.max_entities]
+        # relation pairs by entity indexes
+        pos_pairs = []
+        neg_pairs = []
+        linkings = json_obj['label_linkings'] if 'label_linkings' in json_obj else []
+        for i in range(len(entities)):
+            for j in range(len(entities)):
+                if [entities[i][0], entities[j][0]] in linkings: pos_pairs.append((i, j, 1))
+                else: neg_pairs.append([i, j, 0])
+        if self.is_train_val_test == 'train':
+            random.shuffle(neg_pairs)
+            all_pairs = pos_pairs + neg_pairs
+            all_pairs = all_pairs[:self.max_rel_pairs]
+            random.shuffle(all_pairs)
+        else:
+            all_pairs = pos_pairs + neg_pairs
+        entity_pairs = [[i, j] for i, j, l in all_pairs]
+        labels = [l for i, j, l in all_pairs]
+        if self.is_train_val_test == 'train': # padding
+            entities += [[-2, -2, -2, -2]] * (self.max_entities - len(entities))
+            entity_pairs += [[-3, -3]] * (self.max_rel_pairs - len(entity_pairs))
+            labels += [-100] * (self.max_rel_pairs - len(labels))
+
+        return torch.tensor(entities).long(), torch.tensor(entity_pairs).long(), torch.tensor(labels).long()
+
+    def process(self, json_obj):
+        inputs, word_id_to_token_span = self.process_layout_for_layoutlmv3_encoder(json_obj)
+        if self.is_train_val_test == 'test':
+            inputs['entities'], inputs['entity_pairs'], _ = self.process_re(json_obj, word_id_to_token_span)
+        else:
+            inputs['entities'], inputs['entity_pairs'], inputs['labels'] = self.process_re(json_obj, word_id_to_token_span)
+        return inputs
+
