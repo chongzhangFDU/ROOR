@@ -33,15 +33,15 @@ class NERMetric(Metric):
         pred.append(0) # 保证成功匹配最后一个实体之后终止
         entities = []
         curr_cls, curr_start = None, None
-        for i in len(pred):
-            if self.ner_labels[pred[i]].startswith('B-'):
+        for i in range(len(pred)):
+            if pred[i] in self.ner_labels and self.ner_labels[pred[i]].startswith('B-'):
                 cls = self.ner_labels[pred[i]][2:]
                 if curr_cls is None:
                     curr_cls, curr_start = cls, i
                 else:
                     entities.append(f'{curr_cls}-{curr_start}-{i}')
                     curr_cls, curr_start = cls, i
-            elif self.ner_labels[pred[i]].startswith('I-'):
+            elif pred[i] in self.ner_labels and self.ner_labels[pred[i]].startswith('I-'):
                 cls = self.ner_labels[pred[i]][2:]
                 if curr_cls is None:
                     curr_cls, curr_start = cls, i
@@ -59,8 +59,8 @@ class NERMetric(Metric):
     def update(self, predictions, labels, ori_lengths):
         for pred, label, ori_length in zip(predictions, labels, ori_lengths):
             # 去掉CLS token和PAD token对应位置输出
-            pred = pred[1:ori_length]
-            label = label[1:ori_length]
+            pred = pred[1:ori_length].tolist()
+            label = label[1:ori_length].tolist()
             # 从模型输出解码出实体
             pred_set = set(self.decode(pred))
             gt_set = set(self.decode(label))
