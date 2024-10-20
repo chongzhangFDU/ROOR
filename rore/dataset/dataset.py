@@ -15,6 +15,7 @@ def point2_to_point4(box):
     if isinstance(box[0], list): return box
     return [[box[0], box[1]], [box[2], box[1]], [box[2], box[3]], [box[0], box[3]]]
 
+
 def point4_to_point2(box):
     if not isinstance(box[0], list): return box
     xs, ys = list(zip(*box))
@@ -22,9 +23,10 @@ def point4_to_point2(box):
 
 
 class DocumentDataset(Dataset):
-    def __init__(self, 
-                 dataset, img_dir, tokenizer, 
+    def __init__(self,
+                 dataset, img_dir, tokenizer,
                  max_block_num=256, max_seq_length=1024, img_h=768, img_w=768,
+                 use_segment=True,
                  use_aux_ro=False, transitive_expand=False,
                  class_names=None):
         self.img_dir = img_dir
@@ -34,6 +36,7 @@ class DocumentDataset(Dataset):
         self.max_block_num = max_block_num
         self.img_h = img_h
         self.img_w = img_w
+        self.use_segment = use_segment
         self.use_aux_ro = use_aux_ro
         self.transitive_expand = transitive_expand
         if getattr(self.tokenizer, "vocab", None) is not None:
@@ -103,7 +106,7 @@ class DocumentDataset(Dataset):
 
         list_tokens = []
         list_bbs = []  # word boxes
-        list_seg_bbs = [] # segment boxes
+        list_seg_bbs = []  # segment boxes
         box2token_span_map = []
 
         box_to_token_indices = []
@@ -121,10 +124,10 @@ class DocumentDataset(Dataset):
             if len(tokens) == 0:
                 tokens.append(self.unk_token_id)
 
-            # 原始GeoLayoutLM将长文档截断，不考虑超长部分的实体和这些实体上的关系，造成不公平比较 
+            # 原始GeoLayoutLM将长文档截断，不考虑超长部分的实体和这些实体上的关系，造成不公平比较
             # 这里对这一情况进行避免
             if len(list_tokens) + len(tokens) > self.max_seq_length - 2:
-                raise ValueError('Document length exceeds')  
+                raise ValueError('Document length exceeds')
 
             box2token_span_map.append(
                 [len(list_tokens) + 1, len(list_tokens) + len(tokens) + 1]
@@ -314,26 +317,42 @@ class DocumentDataset(Dataset):
 
     def cdip_to_geo(self, json_obj):
         # 构造words和blocks
-        word_id_to_word_idx = dict() # 从词id到词下标
+        word_id_to_word_idx = dict()  # 从词id到词下标
         curr_idx = 0
-        word_idx_to_token_idx = dict() # 从词下标到词token span
+        word_idx_to_token_idx = dict()  # 从词下标到词token span
         curr_token_idx = 1  # 考虑cls token 所以从1开始计数
         blocks = {'first_token_idx_list': [], 'boxes': []}
         words = []
-        for segment in json_obj['document']:
-            blocks['first_token_idx_list'].append(curr_token_idx)
-            blocks['boxes'].append(point4_to_point2(segment['box']))
-            for word in segment['words']:
-                tokens = self.tokenizer(word['text'], add_special_tokens=False).input_ids
-                words.append({
-                    "text": word['text'],
-                    "tokens": tokens,
-                    "boundingBox": point2_to_point4(word['box']),
-                    "segmentBox": point2_to_point4(segment['box'])})
-                word_id_to_word_idx[word['id']] = curr_idx
-                word_idx_to_token_idx[curr_idx] = (curr_token_idx, curr_token_idx+len(tokens))
-                curr_idx += 1
-                curr_token_idx += len(tokens)
+        if self.use_segment:
+            for segment in json_obj['document']:
+                blocks['first_token_idx_list'].append(curr_token_idx)
+                blocks['boxes'].append(point4_to_point2(segment['box']))
+                for word in segment['words']:
+                    tokens = self.tokenizer(word['text'], add_special_tokens=False).input_ids
+                    words.append({
+                        "text": word['text'],
+                        "tokens": tokens,
+                        "boundingBox": point2_to_point4(word['box']),
+                        "segmentBox": point2_to_point4(segment['box'])})
+                    word_id_to_word_idx[word['id']] = curr_idx
+                    word_idx_to_token_idx[curr_idx] = (curr_token_idx, curr_token_idx + len(tokens))
+                    curr_idx += 1
+                    curr_token_idx += len(tokens)
+        else:
+            for segment in json_obj['document']:
+                for word in segment['words']:
+                    blocks['first_token_idx_list'].append(curr_token_idx)
+                    blocks['boxes'].append(point4_to_point2(word['box']))
+                    tokens = self.tokenizer(word['text'], add_special_tokens=False).input_ids
+                    words.append({
+                        "text": word['text'],
+                        "tokens": tokens,
+                        "boundingBox": point2_to_point4(word['box']),
+                        "segmentBox": point2_to_point4(word['box'])})
+                    word_id_to_word_idx[word['id']] = curr_idx
+                    word_idx_to_token_idx[curr_idx] = (curr_token_idx, curr_token_idx + len(tokens))
+                    curr_idx += 1
+                    curr_token_idx += len(tokens)
         # 构造parse-class
         # 从实体构造class
         # entities = {"O": [], "HEADER": [], "QUESTION": [], "ANSWER": []}
@@ -384,11 +403,12 @@ class DocumentDataset(Dataset):
         # 构造meta，使用上游传入的绝对路径
         if 'fname' not in json_obj['img']:
             if 'image_path' in json_obj['img']:
-                json_obj['img']['fname'] = json_obj['img']['image_path'] # 支持CORD
+                json_obj['img']['fname'] = json_obj['img']['image_path']  # 支持CORD
             elif 'uid' in json_obj:
-                json_obj['img']['fname'] = f"images/{json_obj['uid']}.jpg" # 支持SROIE
+                json_obj['img']['fname'] = f"images/{json_obj['uid']}.jpg"  # 支持SROIE
         meta = {'image_path': os.path.join(self.img_dir, json_obj['img']['fname']),
                 'imageSize': {'width': json_obj['img']['width'], 'height': json_obj['img']['height']},
                 'voca': 'bert-base-uncased'}
         # return
         return {'blocks': blocks, 'words': words, 'parse': parse, 'meta': meta}
+

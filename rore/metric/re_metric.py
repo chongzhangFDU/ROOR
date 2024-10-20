@@ -54,7 +54,7 @@ class REMetric(Metric):
         return metric
 
     def reset(self):
-        self.add_state("p", default=torch.tensor(0), dist_reduce_fx="sum")
-        self.add_state("r", default=torch.tensor(0), dist_reduce_fx="sum")
-        self.add_state("c", default=torch.tensor(0), dist_reduce_fx="sum")
-        self.add_state("cnt", default=torch.tensor(0), dist_reduce_fx="sum")
+        self.add_state("p", default=torch.tensor(0.), dist_reduce_fx="sum")
+        self.add_state("r", default=torch.tensor(0.), dist_reduce_fx="sum")
+        self.add_state("c", default=torch.tensor(0.), dist_reduce_fx="sum")
+        self.add_state("cnt", default=torch.tensor(0.), dist_reduce_fx="sum")

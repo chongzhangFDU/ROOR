@@ -233,7 +233,7 @@ def main(args):
             layoutlmv3_config=config,
             encoder_max_length=None,
             use_image=True,
-            box_level='segment',
+            box_level=args.box_level,
             use_aux_ro=args.use_aux_ro,
             transitive_expand=args.transitive_expand,
             is_train_val_test=is_train_val_test,
@@ -314,6 +314,7 @@ if __name__ == '__main__':
     parser.add_argument('--num_nodes', default=1, type=int, )
     parser.add_argument('--gpus', default=0, type=int)
     parser.add_argument('--strategy', default=None, type=str)
+    parser.add_argument('--box_level', default='segment', type=str)
     parser.add_argument('--lam', default=0.1, type=float)
     parser.add_argument('--num_ro_layers', default=12, type=int)
     parser.add_argument('--use_aux_ro', type=lambda x: bool(strtobool(x)), nargs='?', const=True,

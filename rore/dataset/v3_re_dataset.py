@@ -2,7 +2,6 @@ import itertools
 import json
 import os
 from PIL import Image
-import cv2
 import numpy as np
 import torch
 import tqdm
@@ -193,8 +192,8 @@ class LayoutLMv3Dataset(Dataset):
         entity_pairs = [[i, j] for i, j, l in all_pairs]
         labels = [l for i, j, l in all_pairs]
         if self.is_train_val_test == 'train': # padding
-            entities += [[-2, -2, -2, -2]] * (self.max_entities - len(entities))
-            entity_pairs += [[-3, -3]] * (self.max_rel_pairs - len(entity_pairs))
+            entities += [[0, 0, 0, 0]] * (self.max_entities - len(entities))
+            entity_pairs += [[0, 0]] * (self.max_rel_pairs - len(entity_pairs))
             labels += [-100] * (self.max_rel_pairs - len(labels))
 
         return torch.tensor(entities).long(), torch.tensor(entity_pairs).long(), torch.tensor(labels).long()

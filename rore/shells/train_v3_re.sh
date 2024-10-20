@@ -12,6 +12,7 @@ CUDA_VISIBLE_DEVICES=0 python tasks/train_v3_re.py \
   --label_file_name labels.txt \
   --pretrained_model_path /path/to/dataset/layoutlmv3-base-2048 \
   --save_model_dir /path/to/dataset/save_model_dir \
+  --box_level segment \
   --lam 1e-2 \
   --num_ro_layers 12 \
   --use_aux_ro true \

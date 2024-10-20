@@ -18,7 +18,8 @@ CUDA_VISIBLE_DEVICES=0 python tasks/train_geo.py \
   --model_ckpt_path /path/to/geolayoutlm.pt \
   --save_model_dir /path/to/save_model_dir \
   --use_vision true \
-  --linking_coeff 0.0 \
+  --use_segment true \
+  --linking_coeff 0.5 \
   --lam 10 \
   --num_ro_layers 12 \
   --use_aux_ro true \
@@ -53,7 +54,8 @@ CUDA_VISIBLE_DEVICES=0 python tasks/train_geo.py \
   --model_ckpt_path /path/to/geolayoutlm.pt \
   --save_model_dir /path/to/save_model_dir \
   --use_vision true \
-  --linking_coeff 1.0 \
+  --use_segment true \
+  --linking_coeff 0.5 \
   --lam 10 \
   --num_ro_layers 12 \
   --use_aux_ro true \

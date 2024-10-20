@@ -23,7 +23,7 @@ class GeoLayoutLMVIEModel(nn.Module):
                  bert_base_path='bert-base-uncased',
                  model_ckpt_path=None,
                  use_vision=True,
-                 linking_coeff=1):
+                 linking_coeff=0.5):
         super().__init__()
 
         self.config = config
@@ -224,6 +224,6 @@ class GeoLayoutLMVIEModel(nn.Module):
         loss_dict = {
             "labeling_loss": labeling_loss,
             "linking_loss": linking_loss,
-            "total_loss": labeling_loss + self.linking_coeff * linking_loss,
+            "total_loss": (1 - self.linking_coeff) * labeling_loss + self.linking_coeff * linking_loss,
         }
         return loss_dict

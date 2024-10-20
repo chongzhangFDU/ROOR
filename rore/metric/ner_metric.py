@@ -1,6 +1,7 @@
 import os
 import torch
 import logging
+import numpy as np
 from torchmetrics import Metric
 
 
@@ -34,20 +35,20 @@ class NERMetric(Metric):
         entities = []
         curr_cls, curr_start = None, None
         for i in range(len(pred)):
-            if pred[i] in self.ner_labels and self.ner_labels[pred[i]].startswith('B-'):
-                cls = self.ner_labels[pred[i]][2:]
+            if self.ner_labels[pred[i]].startswith('B-'):
+                cls_ = self.ner_labels[pred[i]][2:]
                 if curr_cls is None:
-                    curr_cls, curr_start = cls, i
+                    curr_cls, curr_start = cls_, i
                 else:
                     entities.append(f'{curr_cls}-{curr_start}-{i}')
-                    curr_cls, curr_start = cls, i
-            elif pred[i] in self.ner_labels and self.ner_labels[pred[i]].startswith('I-'):
-                cls = self.ner_labels[pred[i]][2:]
+                    curr_cls, curr_start = cls_, i
+            elif self.ner_labels[pred[i]].startswith('I-'):
+                cls_ = self.ner_labels[pred[i]][2:]
                 if curr_cls is None:
-                    curr_cls, curr_start = cls, i
-                elif cls != curr_cls:
+                    curr_cls, curr_start = cls_, i
+                elif cls_ != curr_cls:
                     entities.append(f'{curr_cls}-{curr_start}-{i}')
-                    curr_cls, curr_start = cls, i
+                    curr_cls, curr_start = cls_, i
                 else: pass
             else:
                 if curr_cls is not None:
@@ -81,7 +82,8 @@ class NERMetric(Metric):
         return metric
 
     def reset(self):
-        self.add_state("p", default=torch.tensor(0), dist_reduce_fx="sum")
-        self.add_state("r", default=torch.tensor(0), dist_reduce_fx="sum")
-        self.add_state("c", default=torch.tensor(0), dist_reduce_fx="sum")
-        self.add_state("cnt", default=torch.tensor(0), dist_reduce_fx="sum")
+        self.add_state("p", default=torch.tensor(0.), dist_reduce_fx="sum")
+        self.add_state("r", default=torch.tensor(0.), dist_reduce_fx="sum")
+        self.add_state("c", default=torch.tensor(0.), dist_reduce_fx="sum")
+        self.add_state("cnt", default=torch.tensor(0.), dist_reduce_fx="sum")
+

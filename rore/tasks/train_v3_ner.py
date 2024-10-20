@@ -71,7 +71,7 @@ class TrainingModule(pl.LightningModule):
         val_loss, logits = outputs.loss, outputs.logits
         predictions = torch.argmax(logits, dim=-1)
         predictions, labels = predictions.detach().cpu().numpy(), batch["labels"].detach().cpu().numpy()
-        self.metric.update(predictions, labels, batch['ori_lengths'])
+        self.metric.update(predictions, labels, batch['ori_length'])
         return val_loss
 
     def validation_epoch_end(self, step_outputs, split='val'):
@@ -234,7 +234,7 @@ def main(args):
             layoutlmv3_config=config,
             encoder_max_length=None,
             use_image=True,
-            box_level='segment',
+            box_level=args.box_level,
             use_aux_ro=args.use_aux_ro,
             transitive_expand=args.transitive_expand,
             is_train_val=is_train_val,
@@ -315,6 +315,7 @@ if __name__ == '__main__':
     parser.add_argument('--num_nodes', default=1, type=int, )
     parser.add_argument('--gpus', default=0, type=int)
     parser.add_argument('--strategy', default=None, type=str)
+    parser.add_argument('--box_level', default='segment', type=str)
     parser.add_argument('--lam', default=0.1, type=float)
     parser.add_argument('--num_ro_layers', default=12, type=int)
     parser.add_argument('--use_aux_ro', type=lambda x: bool(strtobool(x)), nargs='?', const=True,

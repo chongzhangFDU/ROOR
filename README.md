@@ -32,6 +32,7 @@ If the work is helpful to you, please kindly cite the paper as:
 ```bash
 conda create -n LayoutIE python=3.8
 conda activate LayoutIE
+pip install pip==24.0
 pip install torch==1.11.0+cu113 torchvision==0.12.0+cu113 torchaudio==0.11.0 --extra-index-url https://download.pytorch.org/whl/cu113
 pip install torchmetrics==0.11.1
 pip install transformers==4.26.1
@@ -40,7 +41,6 @@ pip install nltk==3.8.1
 pip install jieba==0.42.1
 pip install seqeval==1.2.2
 pip install ark_nlp==0.0.9
-pip install opencv-python==4.7.0.68
 pip install opencv-python-headless==4.7.0.68
 pip install timm==0.6.12
 pip install sentencepiece==0.1.97
