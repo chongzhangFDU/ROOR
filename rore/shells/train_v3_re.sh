@@ -17,8 +17,8 @@ CUDA_VISIBLE_DEVICES=0 python tasks/train_v3_re.py \
   --num_ro_layers 12 \
   --use_aux_ro true \
   --transitive_expand false \
-  --batch_size 2 \
-  --accumulate_grad_batches 8 \
+  --batch_size 1 \
+  --accumulate_grad_batches 1 \
   --max_epochs 500 \
   --learning_rate 1e-5 \
   --weight_decay 0.01 \

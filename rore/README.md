@@ -10,8 +10,9 @@ Please follow the instructions from `make_weights/README.md` to prepare the pre-
 
 Please use the ROOR dataset, or automatically annotate other datasets (FUNSD, CORD, SROIE, etc.) with our ROP model.
 
-* Running LayoutLMv3 for SER: `shells/{train,test}_v3_ner.sh`
-* Running LayoutLMv3 for EL: `shells/{train,test}_v3_ner.sh`
+* Running LayoutLMv3 for SER: `shells/{train,test}_v3_ner.sh`.
+* Running LayoutLMv3 for EL: `shells/{train,test}_v3_re.sh`
+  * Set `batch_size=1` for better convergence. 
 * Running GeoLayoutLM for both tasks: `shells/{train,test}_geolayoutlm_ie.sh`
 
 ### DocVQA

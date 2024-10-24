@@ -82,7 +82,12 @@ class LayoutLMv3Dataset(Dataset):
         self.max_rel_pairs = max_rel_pairs
 
         # 预处理每条输入数据
-        self.dataset = [self.process(o) for o in tqdm.tqdm(json_objs)]
+        self.dataset = []
+        for o in tqdm.tqdm(json_objs):
+            try:
+                self.dataset.append(self.process(o))
+            except Exception as e:
+                pass
 
     def __len__(self):
         return len(self.dataset)
@@ -171,6 +176,7 @@ class LayoutLMv3Dataset(Dataset):
             entity_head = word_id_to_token_span[e['word_idx'][0]][0]
             entity_tail = word_id_to_token_span[e['word_idx'][-1]][0]
             entities.append([e['entity_id'], entity_head, entity_tail, self.ner_labels.index(e['label'])])
+        assert len(entities) > 0
         if self.is_train_val_test == 'train':
             random.shuffle(entities)
             entities = entities[:self.max_entities]
@@ -182,6 +188,7 @@ class LayoutLMv3Dataset(Dataset):
             for j in range(len(entities)):
                 if [entities[i][0], entities[j][0]] in linkings: pos_pairs.append((i, j, 1))
                 else: neg_pairs.append([i, j, 0])
+        assert len(pos_pairs) > 0 and len(neg_pairs) > 0
         if self.is_train_val_test == 'train':
             random.shuffle(neg_pairs)
             all_pairs = pos_pairs + neg_pairs
