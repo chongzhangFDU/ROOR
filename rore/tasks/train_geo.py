@@ -242,6 +242,7 @@ def main(args):
                                       img_h=config.backbone_config['image_size'][0], 
                                       img_w=config.backbone_config['image_size'][1],
                                       use_segment=args.use_segment,
+                                      real_scan=args.real_scan,
                                       use_aux_ro=args.use_aux_ro,
                                       transitive_expand=args.transitive_expand,
                                       class_names=class_names
@@ -329,6 +330,8 @@ if __name__ == '__main__':
     parser.add_argument('--linking_coeff', default=0.5, type=float, help='linking loss的权重，0-1之间，0:全是labeling，1:全是linking')
     parser.add_argument('--use_segment', type=lambda x: bool(strtobool(x)), nargs='?', const=True,
                         help='是否使用segment框', default=True)
+    parser.add_argument('--real_scan', type=lambda x: bool(strtobool(x)), nargs='?', const=True,
+                        help='是否扰动segment框', default=False)
     parser.add_argument('--lam', default=0.1, type=float)
     parser.add_argument('--num_ro_layers', default=12, type=int)
     parser.add_argument('--use_aux_ro', type=lambda x: bool(strtobool(x)), nargs='?', const=True,

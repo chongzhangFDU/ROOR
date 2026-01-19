@@ -19,3 +19,14 @@ Please use the ROOR dataset, or automatically annotate other datasets (FUNSD, CO
 
 Due to the policies of the fine-tuning datasets, we are unable to provide the processed fine-tuning datasets in this repository.
 Please construct the fine-tuning data corresponding to sample data at `data/docvqa`, and then running `shells/{train,test}_lmv3_docvqa.sh` for fine-tuning and validation. 
+
+### Robustness Evaluation and Adversarial Training for SER and EL
+
+* Running LayoutLMv3 for SER and EL: Set `--box_level real_scan`.
+* Running GeoLayoutLM for SER and EL: Set `--real_scan true`.
+
+### Fairness Evaluation for SER and EL
+
+* Running evaluation with `--do_multi_row_eval true`, and using `jsons_{funsd,ec}_complex_entity` introduced at [ROOR-Datasets](https://github.com/chongzhangFDU/ROOR-Datasets/).
+
+

@@ -26,7 +26,7 @@ class DocumentDataset(Dataset):
     def __init__(self,
                  dataset, img_dir, tokenizer,
                  max_block_num=256, max_seq_length=1024, img_h=768, img_w=768,
-                 use_segment=True,
+                 use_segment=True, real_scan=False,
                  use_aux_ro=False, transitive_expand=False,
                  class_names=None):
         self.img_dir = img_dir
@@ -37,6 +37,7 @@ class DocumentDataset(Dataset):
         self.img_h = img_h
         self.img_w = img_w
         self.use_segment = use_segment
+        self.real_scan = real_scan
         self.use_aux_ro = use_aux_ro
         self.transitive_expand = transitive_expand
         if getattr(self.tokenizer, "vocab", None) is not None:
@@ -327,8 +328,28 @@ class DocumentDataset(Dataset):
             for segment in json_obj['document']:
                 blocks['first_token_idx_list'].append(curr_token_idx)
                 blocks['boxes'].append(point4_to_point2(segment['box']))
+                if self.real_scan:
+                    # 模拟随机打断情况，计算这种情况下每个word的segment box
+                    spans = []
+                    curr_head = None
+                    last_center = None
+                    for i, word in enumerate(segment['words']):
+                        box = word['box']
+                        if curr_head is None: 
+                            curr_head = i 
+                        else:
+                            if (box[0]+box[2])/2 < last_center[0]:
+                                spans.append((curr_head, i))
+                                curr_head = i 
+                            elif random.random() > 0.9:
+                                spans.append((curr_head, i))
+                                curr_head = i 
+                        last_center = [(box[0]+box[2])/2, (box[1]+box[3])/2]
+                    else:
+                        spans.append((curr_head, len(segment['words'])))
                 for word in segment['words']:
                     tokens = self.tokenizer(word['text'], add_special_tokens=False).input_ids
+                    segment_box = ret_boxes[i] if self.real_scan else segment['box']
                     words.append({
                         "text": word['text'],
                         "tokens": tokens,

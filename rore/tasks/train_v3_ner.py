@@ -41,6 +41,8 @@ class TrainingModule(pl.LightningModule):
             num_ro_layers=self.hparams.num_ro_layers)
         self.tokenizer = LayoutLMv3TokenizerFast.from_pretrained(self.hparams.pretrained_model_path, do_lower_case=True)
         self.metric = NERMetric(ner_labels=ner_labels)
+        if self.hparams.do_multi_row_eval:
+            self.multi_row_metric = NERMultRowMetric(ner_labels=ner_labels)
         if self.global_rank == 0:
             self.local_logger = create_logger(log_dir=self.hparams.save_model_dir)
             self.local_logger.info(self.hparams)
@@ -72,6 +74,8 @@ class TrainingModule(pl.LightningModule):
         predictions = torch.argmax(logits, dim=-1)
         predictions, labels = predictions.detach().cpu().numpy(), batch["labels"].detach().cpu().numpy()
         self.metric.update(predictions, labels, batch['ori_length'])
+        if self.hparams.do_multi_row_eval:
+            self.multi_row_metric.update(predictions, labels, batch['ori_length'], batch['labels_multi_row'])
         return val_loss
 
     def validation_epoch_end(self, step_outputs, split='val'):
@@ -88,6 +92,11 @@ class TrainingModule(pl.LightningModule):
         self.log("val_samples", val_samples, prog_bar=True, on_epoch=True)
         self.log("val_loss", val_loss, prog_bar=True, on_epoch=True)
 
+        if self.hparams.do_multi_row_eval:
+            metric_results = self.multi_row_metric.compute()
+            val_multi_row_recall = metric_results['multi_row_recall']
+            self.log("val_multi_row_recall", val_multi_row_recall, prog_bar=True, on_epoch=True)
+
         if self.global_rank == 0 and self.local_rank == 0:
             self.local_logger.info(
                 f"**{split.capitalize()}** , "
@@ -100,6 +109,15 @@ class TrainingModule(pl.LightningModule):
                 f"samples: {val_samples}, "
             )
         self.metric.reset()
+        if self.hparams.do_multi_row_eval:
+            if self.global_rank == 0 and self.local_rank == 0:
+                self.local_logger.info(
+                    f"**{split.capitalize()}** , "
+                    f"Epoch: {self.current_epoch}/{self.trainer.max_epochs}, "
+                    f"GlobalSteps: {self.global_step}, "
+                    f"multi_row_recall: {val_multi_row_recall:.5f}, "
+                )
+            self.multi_row_metric.reset()
 
     def test_step(self, batch, batch_idx):
         return self.validation_step(batch, batch_idx)
@@ -239,6 +257,7 @@ def main(args):
             transitive_expand=args.transitive_expand,
             is_train_val=is_train_val,
             ner_labels=ner_labels,
+            do_multi_row_eval=args.do_multi_row_eval,
             )
         index_fname_to_dataset_tmp_cache[index_fname] = ret_dataset
         return ret_dataset
@@ -322,6 +341,8 @@ if __name__ == '__main__':
                         help='是否使用阅读顺序信号', default=False)
     parser.add_argument('--transitive_expand', type=lambda x: bool(strtobool(x)), nargs='?', const=True,
                         help='阅读顺序信号是否增加传递性', default=False)
+    parser.add_argument('--do_multi_row_eval', type=lambda x: bool(strtobool(x)), nargs='?', const=True,
+                        help='是否进行复杂实体评测', default=False)
     parser.add_argument('--max_epochs', default=100, type=int)
     parser.add_argument('--batch_size', default=2, type=int)
     parser.add_argument('--accumulate_grad_batches', default=2, type=int)
@@ -348,6 +369,7 @@ if __name__ == '__main__':
                         help='是否开启detect',
                         default=False)
     args = parser.parse_args()
+    args.do_multi_row_eval = args.do_multi_row_eval and (args.do_test or args.do_predict)
     print(args)
 
     main(args)

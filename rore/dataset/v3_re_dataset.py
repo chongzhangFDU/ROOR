@@ -108,10 +108,48 @@ class LayoutLMv3Dataset(Dataset):
         input_ids, attention_mask, bbox = [self.layoutlmv3_tokenizer.cls_token_id], [1], [[0, 0, 0, 0]]
         word_id_to_token_span = dict()
         for segment in json_obj['document']:
+
+            if self.box_level == 'real_scan':
+                # 模拟随机打断情况，计算这种情况下每个word的segment box
+                spans = []
+                curr_head = None
+                last_center = None
+                for i, word in enumerate(segment['words']):
+                    box = word['box']
+                    if curr_head is None: 
+                        curr_head = i 
+                    else:
+                        if (box[0]+box[2])/2 < last_center[0]:
+                            spans.append((curr_head, i))
+                            curr_head = i 
+                        elif random.random() > 0.9:
+                            spans.append((curr_head, i))
+                            curr_head = i 
+                    last_center = [(box[0]+box[2])/2, (box[1]+box[3])/2]
+                else:
+                    spans.append((curr_head, len(segment['words'])))
+                # for span, next_span in zip(spans, spans[1:]): assert span[1] == next_span[0]
+                # for span in spans: assert span[0] < span[1]
+                # assert spans[0][0] == 0
+                # assert spans[-1][-1] == len(segment['words'])
+                ret_boxes = [[0,0,0,0] for word in segment['words']]
+                for span in spans:
+                    new_seg_box = [
+                        min([segment['words'][i]['box'][0] for i in range(*span)]),
+                        min([segment['words'][i]['box'][1] for i in range(*span)]),
+                        max([segment['words'][i]['box'][2] for i in range(*span)]),
+                        max([segment['words'][i]['box'][3] for i in range(*span)])]
+                    for i in range(4):
+                        new_seg_box[i] += round(np.random.normal(loc=0, scale=random.randint(5, 10)))
+                    for i in range(*span):
+                        ret_boxes[i] = new_seg_box 
+
             for word in segment['words']:
                 tokens = self.layoutlmv3_tokenizer(word['text'], add_special_tokens=False).input_ids
                 if self.box_level == 'segment':
                     box = segment['box']
+                elif self.box_level == 'real_scan':
+                    box = ret_boxes[i]
                 else:
                     box = word['box']
                 max_2d = self.layoutlmv3_config.max_2d_position_embeddings - 2
